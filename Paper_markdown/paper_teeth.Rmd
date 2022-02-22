@@ -1,0 +1,131 @@
+---
+output: 
+  pdf_document:
+    citation_package: biblatex
+    keep_tex: true
+    fig_caption: true
+    latex_engine: pdflatex
+    template: /home/camilodlt/Downloads/CM_ML/TP5/Maturite_dentaire/Paper_markdown/templates/svm-latex-ms.tex
+title: "Patient's age prediction based on medical diagnosis of teeth maturity"
+thanks: "We would like to thanks the doctors who delivered their experienced assesment of teeth maturity as well as our teacher who provided us the data to work with."
+author:
+- name: De La Torre Camilo
+  affiliation: Universite Toulouse 1 Capitole
+- name: Campan Alexis
+  affiliation: Universite Toulouse 1 Capitole
+abstract: "Our study involves patient's age prediction based on teeth maturity that is assesed by doctors. Teeth are characterised by several levels of maturity (going from A to H), data is often incomplete and for some patients, teeth can't be evaluated because the patient does not have them yet. After several attempts to mitigate the incompleteness of our records, we obtained a very low Mean Absolute Error of 0.9 years in predicting unseen data. The model that best generalized to unseen records was a tuned GBRT (Gradient Boosting Regression Tree). Lastly, we also analyse the importance of different teeth maturities and interestingly discovered that not all teeth have the same predictive power on patient's age."
+keywords: "Teeth, Age, Regression, Machine Learning, GBRT"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+geometry: margin=1in
+fontfamily: mathpazo
+fontsize: 11pt
+# spacing: double
+bibliography: master.bib
+#biblio-style: apsr
+
+---
+
+
+```{r setup, include=FALSE,comment=FALSE, warning=FALSE}
+# overall settings ---
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "/home/camilodlt/Downloads/CM_ML/TP5/Maturite_dentaire/")
+
+library(tidyverse)
+library(visdat)
+# PATHS ---
+base_path = "/Maturite_dentaire"
+data_path = "data/Teeth"
+data_name= "dataset.csv"
+
+```
+
+```{r, echo = FALSE,include=FALSE,comment=FALSE, warning=FALSE}
+# Original data stats ---
+org_data<- readr::read_csv2(file.path(data_path, data_name))
+org_data<- dplyr::na_if(org_data, "NULL")
+org_data$ID<- NULL 
+```
+```{r, echo=FALSE,comment=FALSE, warning=FALSE, include=FALSE}
+n_na<- sum(complete.cases(org_data)==FALSE)
+n_na_pct<- round(sum(complete.cases(org_data)==FALSE)/nrow(org_data),1)*100
+```
+
+
+# Introduction 
+
+The data we study explores teeth maturity of several individuals, specifically, we analysed 2847 records. By teeth maturity we mean that each tooth's condition is analysed by a doctor and classed on one of the possible maturity levels (going from A to H, A being the least mature, and H being the most mature). A total of 8 teeth are analysed by doctors, these involve : two incisors teeth, one canine tooth, two premolar teeth, finally, three molar teeth. In addition to teeth maturity indices, we also know the patient's sex, age and medical ID. 
+
+# Incompleteness of the data 
+
+The data at hand is not complete: out of our 2847 records, for `r n_na` records at least a tooth score is missing (`r n_na_pct`% of the data). Moreover, not all teeth are equally misrepresented, as we might expect, molar teeth scores are less likely to be present in our records because several patients do not have them yet. In addition, because of multiple reasons, is it possible that a patient of a given age lost or had removed one or several teeth, this, we think, complicates missing values interpretation because several causes, unrelated to age, can affect it. 
+
+Figure X shows missing values per column in our data, moreover, it shows the interaction between missing values across columns. 
+
+We observe that our dependent variable, patient's age, is always complete. We also note that the last molar has a very high percentage of missing values. Besides the last molar (M3), another two teeth have over 10% of missing values (I1 and PM2). 
+
+```{r,echo = FALSE, fig.width=10, fig.height=4}
+visdat::vis_miss(org_data)
+```
+
+
+Nonetheless, because of the first reason of incompleteness we presented (that teeth grow at different stages in life) we think that imputing missing values makes sense, our approach is explained when we discuss about our methodology. 
+
+# Methodology 
+
+As predictive power is our main goal, we are interested in finding the model that minimizes an error score on unseen data. The score we chose is the Mean Absolute Error defined as $mae=(\frac{1}{n})\sum_{i=1}^{n}\left | y_{i} - f(x_{i}) \right |$ where $f(x_{i})$ is our predicted age.
+
+To do so, we adopt a classical random split of our data to avoid any data leakage and test model generalization. For algorithms that do not make a validation set right out the bat, i.e. *XGBoost*, we make it ourselves to ensure that we do not overfit our model on test data because of Early Stopping and other techniques. 
+
+## Ordinal encoding 
+
+Teeth maturity comes in a mixture of numbers and letters levels. Maturity scores ranges from 0, 1, A,..., H, 0 being the least mature and H being the most mature. Several algorithms do not work with ordinal data or perform poorly after one hot encoding of such data. 
+
+In order to compare algorithms but also to facilitate convergence on some algorithms we adopt the strategy of ordinal encoding. That is, we assign an integer value to each categorical level. The transformation is monotonic for the purpose of keeping the order of teeth maturity scores. 
+
+We assume that maturity scores are based on a linear scale, in other words, the difference between A and B is of the same magnitude as the difference between G and H. 
+
+## Handling missing values
+
+```{r,echo=FALSE}
+# X_train split ---
+X_train<- readr::read_csv(file.path(data_path, "X_train.csv"))
+row_na<- X_train%>% is.na()%>% rowSums # nb of NAs per row
+n_omitted=sum(row_na>7)
+nb_training_samples= nrow(X_train)
+
+# KNNI 
+n_nei= 40
+```
+
+### Removing very incomplete data 
+
+As discussed before, several samples of the data contain missing values. Figure X showed that for several patients, multiple teeth scores where missing, i.e. some samples presented a continuous black line, indicating that for all teeth, the maturity scores are not available. Because of this observation, we decided to exclude some samples from the training data in order to prevent the imputation technique, discussed below, to base its neighboring on an insufficient subset of columns. 
+
+Specifically, we removed samples in the training set for which information about 7, out of 8, teeth is missing. That was the case for `r n_omitted` samples in the training set, reducing its size from `r nb_training_samples` observations to `r nb_training_samples - n_omitted` observations.
+
+### K Nearest Neighbors imputation 
+
+We believe that, in general, patients of similar age have similar teeth maturities, hence, we are convinced that for our prediction task, samples that are alike will tend to have the same age. Therefore, if tooth information is missing from a sample, we believe that it could be estimated by looking at analogous samples existing in the training data. This motivates us to use an imputing algorithm that performs some multivariate estimation of missing values using complete observations. 
+
+We performed K Nearest Neighbors imputation on the missing values in the training set and testing set. We set the vicinity used for imputation to `r n_nei` neighbors, these are weighted by euclidean distance. 
+
+Because we believe that the missingness of a tooth score is informative about a patient's age, e.g. wisdom tooth removal, we created a binary features indicating the presence of missing values for each imputed column and sample. 
+
+## Outlier removal 
+
+
+
+# Model developement 
+
+## Baseline results on several algorithms 
+
+## Results on best tuned GBRT 
+
+# Feature importances 
+
+# Conclusion 
+
+# References 
+
+
