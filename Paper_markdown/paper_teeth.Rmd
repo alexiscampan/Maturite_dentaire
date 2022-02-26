@@ -29,7 +29,9 @@ bibliography: master.bib
 ```{r setup, include=FALSE,comment=FALSE, warning=FALSE}
 # overall settings ---
 knitr::opts_chunk$set(echo = TRUE)
-knitr::opts_knit$set(root.dir = "/home/camilodlt/Downloads/CM_ML/TP5/Maturite_dentaire/")
+knitr::opts_knit$set(root.dir = "/home/camilo/Downloads/CM_ML/CM_ML/Maturite_dentaire/")
+
+library(workflowsets)
 
 library(tidyverse)
 library(visdat)
@@ -87,7 +89,7 @@ We assume that maturity scores are based on a linear scale, in other words, the 
 
 ## Handling missing values
 
-```{r,echo=FALSE}
+```{r,echo = FALSE,include=FALSE,comment=FALSE, warning=FALSE}
 # X_train split ---
 X_train<- readr::read_csv(file.path(data_path, "X_train.csv"))
 row_na<- X_train%>% is.na()%>% rowSums # nb of NAs per row
@@ -114,11 +116,147 @@ Because we believe that the missingness of a tooth score is informative about a 
 
 ## Outlier removal 
 
-
+After all these steps, our last process before training is to remove the outliers. Removing outliers consist of exclude unusual values and so reduce the variability in our data. We have tried several techniques for detect these outliers:
+- PCA: we fit_transform our data and then we calculate the MSE score for each point in order to drop the 10% lower (we have tested 10% upper and 5%-5% but lower values was the best to remove).
+- Isolation Forest: this algorithm is based on tree algorithms it calculate an anomalie score for each point, the easier it is to isolate the data, the more likely it is that the data is an anomaly.
+After performance comparisons we kept the Isolation Forest to remove the outliers. 
+Remove outliers is one of our most important techniques of preprocessing to reduce our mean absolute error.
 
 # Model developement 
 
 ## Baseline results on several algorithms 
+
+```{r,echo = FALSE,include=FALSE,comment=FALSE, warning=FALSE}
+# Import preprocessed data (all as double) ---
+  #* Features ---
+X_train<- readr::read_csv(file.path(data_path, "3_X_train_outlier.csv"), col_types= cols(.default = "d"))
+X_val<- readr::read_csv(file.path(data_path, "3_X_val_outlier.csv"), col_types= cols(.default = "d"))
+X_test<- readr::read_csv(file.path(data_path, "3_X_test_outlier.csv"), col_types= cols(.default = "d"))
+
+  #* Labels ---  
+y_train<- readr::read_csv(file.path(data_path, "3_y_train_outlier.csv"), col_types= cols(.default = "d"))
+y_val<- readr::read_csv(file.path(data_path, "3_y_val_outlier.csv"), col_types= cols(.default = "d"))
+y_test<- readr::read_csv(file.path(data_path, "3_y_test_outlier.csv"), col_types= cols(.default = "d"))
+
+# Merge ---
+X_train["Age"]<- y_train$Age
+X_val["Age"]<- y_val$Age
+X_test["Age"]<- y_test$Age
+
+```
+
+```{r}
+library(workflowsets)
+library(parsnip)
+library(rsample)
+library(recipes)
+
+# MODELS ------
+lm_model <- linear_reg() %>% set_engine("lm")
+rf_model <- 
+  rand_forest(trees = 1000) %>% 
+  set_engine("ranger") %>% 
+  set_mode("regression")
+
+lasso <- linear_reg(penalty = 0.001, mixture = 1) %>% 
+  set_engine("glmnet")
+
+elastic <- linear_reg(penalty = 0.001, mixture = 0.5) %>% 
+  set_engine("glmnet")
+
+knnr<- nearest_neighbor(mode= "regression")%>% # 5 neighbors by default
+  set_engine("kknn")
+
+all_models<- list(
+  "lm"= lm_model,
+  "rf"= rf_model,
+  "lasso"= lasso,
+  "elastic"= elastic,
+  "knn_reg"= knnr
+  )
+
+# RECIPE ------
+formula_regression <-recipe(X_train, formula = "Age ~ .")
+
+# CV ------
+set.seed(99)
+cv <- vfold_cv(X_train)
+# WORKFLOW SET ------
+wf_set = workflow_set(preproc = list("Age ~ ."= formula_regression),
+             models = all_models,cross = TRUE)
+
+# FIT ALL MODELS WITH CV ------
+
+fit_rs <- wf_set%>% workflow_map(
+  "fit_resamples", # fit all cvs 
+  resamples = cv,
+  metrics = metric_set(mae)
+)
+```
+
+```{r}
+autoplot(fit_rs)
+```
+```{r}
+# Get the names --- 
+models_str<- fit_rs$wflow_id
+data_str<- c("X_train","X_val","X_test")
+
+# FIT ON ALL DATA ---
+last_fitting<-map(models_str, .f = function(x){
+  fitted<-fit_rs%>%extract_workflow(x)%>%
+    fit(X_train) # on whole data, no cv
+  return(fitted)
+})
+
+# Set the names ---
+last_fitting<- setNames(last_fitting,models_str)
+
+# Predict all models for all datasets
+all_preds<-cross2(models_str, data_str) %>%  # cross products 
+  imap(function(x,y){
+  # unpack 
+  model= x[[1]]
+  data= x[[2]]
+  # get the current model by name
+  current_model <-  last_fitting[[model]] # extract model
+  # get the data by evaluating the df name
+  df= eval(parse(text=data))
+
+  # Predict 
+  preds <- current_model %>%  
+      predict(new_data= df)
+  truth = df$Age
+  # store 
+  res<-list("preds"= preds$.pred, "truth"= truth)
+  res_df <- res%>% as.data.frame()
+  # calculate mae
+  mae_<-mae(res_df, truth= truth, estimate= preds)
+  print(mae_)
+  return(list("model"= model, "data"= data, "mae"= mae_$.estimate))
+  })
+
+# extract all 
+results<-data.frame(
+  list(
+    "model"=str_split(map_chr(all_preds, "model"),"_")%>% map_chr(2), # all models
+    "data"=map_chr(all_preds, "data"), # on which data 
+    "mae"=map_dbl(all_preds, "mae") # mae score
+    ))
+  
+results <- results%>% pivot_wider(names_from = model, values_from = mae)
+
+```
+
+
+As stated before, our main goal is finding the optimum predictive power. To do so, we tried several algorithms on the processed data, i.e. following the treatment described before. 
+
+We report the scores obtained by the following models: X,X,X on the train, validation and testing data. The models where not *fine tuned* because we were mostly interested in defining baselines score to improve upon. 
+
+
+
+
+
 
 ## Results on best tuned GBRT 
 
