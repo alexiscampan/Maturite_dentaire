@@ -5,7 +5,7 @@ output:
     keep_tex: true
     fig_caption: true
     latex_engine: pdflatex
-    template: /home/camilodlt/Downloads/CM_ML/TP5/Maturite_dentaire/Paper_markdown/templates/svm-latex-ms.tex
+    template: /home/camilo/Downloads/CM_ML/CM_ML/Maturite_dentaire/Paper_markdown/templates/svm-latex-ms.tex
 title: "Patient's age prediction based on medical diagnosis of teeth maturity"
 thanks: "We would like to thanks the doctors who delivered their experienced assesment of teeth maturity as well as our teacher who provided us the data to work with."
 author:
@@ -32,9 +32,13 @@ knitr::opts_chunk$set(echo = TRUE)
 knitr::opts_knit$set(root.dir = "/home/camilo/Downloads/CM_ML/CM_ML/Maturite_dentaire/")
 
 library(workflowsets)
-
+library(parsnip)
+library(rsample)
+library(recipes)
 library(tidyverse)
 library(visdat)
+library(yardstick)
+
 # PATHS ---
 base_path = "/Maturite_dentaire"
 data_path = "data/Teeth"
@@ -126,7 +130,7 @@ Remove outliers is one of our most important techniques of preprocessing to redu
 
 ## Baseline results on several algorithms 
 
-```{r,echo = FALSE,include=FALSE,comment=FALSE, warning=FALSE}
+```{r Read all data,echo = FALSE,include=FALSE,comment=FALSE, warning=FALSE}
 # Import preprocessed data (all as double) ---
   #* Features ---
 X_train<- readr::read_csv(file.path(data_path, "3_X_train_outlier.csv"), col_types= cols(.default = "d"))
@@ -145,16 +149,11 @@ X_test["Age"]<- y_test$Age
 
 ```
 
-```{r}
-library(workflowsets)
-library(parsnip)
-library(rsample)
-library(recipes)
-
+```{r Set all models,echo = FALSE,include=FALSE,comment=FALSE, warning=FALSE}
 # MODELS ------
 lm_model <- linear_reg() %>% set_engine("lm")
 rf_model <- 
-  rand_forest(trees = 1000) %>% 
+  rand_forest() %>% 
   set_engine("ranger") %>% 
   set_mode("regression")
 
@@ -194,10 +193,19 @@ fit_rs <- wf_set%>% workflow_map(
 )
 ```
 
-```{r}
+
+As stated before, our main goal is finding the optimum predictive power. To do so, we tried several algorithms on the processed data, i.e. following the treatment described before. 
+
+We report the scores obtained by the following models: Linear regression, Random Forest, Lasso regression and Elastic regression. All data sets are scored, that is, the train, validation and test sets. The models where not *fine tuned* because we were mostly interested in defining baselines score to improve upon. 
+
+In addition, we performed k-fold (k=10) cross validation for each algorithm to improve our training *mae* estimate. The results of such cross validation strategy are shown in Figure X: 
+```{r autplot,echo = TRUE,include=TRUE,comment=FALSE, warning=FALSE}
 autoplot(fit_rs)
 ```
-```{r}
+
+Table X shows all mean absolute error scores on all data sets from all models. 
+
+```{r evaluate all models,echo = FALSE,include=FALSE,comment=FALSE, warning=FALSE}
 # Get the names --- 
 models_str<- fit_rs$wflow_id
 data_str<- c("X_train","X_val","X_test")
@@ -248,11 +256,9 @@ results <- results%>% pivot_wider(names_from = model, values_from = mae)
 
 ```
 
-
-As stated before, our main goal is finding the optimum predictive power. To do so, we tried several algorithms on the processed data, i.e. following the treatment described before. 
-
-We report the scores obtained by the following models: X,X,X on the train, validation and testing data. The models where not *fine tuned* because we were mostly interested in defining baselines score to improve upon. 
-
+```{r print results}
+print(results)
+```
 
 
 
