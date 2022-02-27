@@ -80,12 +80,6 @@ def run_cat_boost(rs:int):
     X_train= knni.fit_transform(X_train.values) 
     X_val= knni.transform(X_val.values) 
     X_test= knni.transform(X_test.values) 
-
-    # New columns --- 
-    indicator_features= []
-    for i in X.columns.values[1:]:
-        indicator_features.append(i+ "_missing_indicator")
-    new_cols= [*list(X.columns), *indicator_features]
     
     # isolation forest 
     #train ---
@@ -95,24 +89,22 @@ def run_cat_boost(rs:int):
     X_train = X_train[inliers,:]
     y_train = y_train.reset_index(drop=True)[inliers]
     
-    model = CatBoostRegressor(iterations=9000, 
-                            depth=5, 
-                            learning_rate=0.001, 
-                            loss_function='MAE',
-                            train_dir = "mae",
-                            random_seed=rs,
-                            grow_policy= "SymmetricTree",
-                            l2_leaf_reg= 3,
-                            use_best_model=True,
-                            od_type="Iter",
-                            od_wait=10,
-                            verbose=0,
-                            colsample_bylevel=0.2,
-                            )
+    model = CatBoostRegressor(iterations=15590, # by model.best_iteration_ 
+                          depth=3, 
+                          learning_rate=0.001, 
+                          loss_function='MAE',
+                          train_dir = "mae",
+                          random_seed=rs,
+                          grow_policy= "SymmetricTree",
+                          l2_leaf_reg= 600,
+                          #use_best_model=True,
+                          #od_type="Iter",
+                          #od_wait=100,
+                          verbose=0,
+                          colsample_bylevel=0.9,
+                         )
     #train the model
-    model.fit(X= X_train, y= y_train,
-            plot=True,
-            eval_set=(X_val,y_val))
+    model.fit(X= X_train, y= y_train)
     
     #keep our results
     train = mean_absolute_error(model.predict(X_train), y_train)
@@ -137,3 +129,5 @@ if __name__ == '__main__':
     
     #export our results to csv
     results.to_csv("results.csv", index=False)
+    
+    print(results["test"].min())

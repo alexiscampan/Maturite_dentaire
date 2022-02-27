@@ -7,13 +7,13 @@ output:
     latex_engine: pdflatex
     template: /home/camilo/Downloads/CM_ML/CM_ML/Maturite_dentaire/Paper_markdown/templates/svm-latex-ms.tex
 title: "Patient's age prediction based on medical diagnosis of teeth maturity"
-thanks: "We would like to thanks the doctors who delivered their experienced assesment of teeth maturity as well as our teacher who provided us the data to work with."
+thanks: "We would like to thank the doctors who delivered their experienced assesment of teeth maturity as well as our teacher who provided us the data to work with."
 author:
 - name: De La Torre Camilo
   affiliation: Universite Toulouse 1 Capitole
 - name: Campan Alexis
   affiliation: Universite Toulouse 1 Capitole
-abstract: "Our study involves patient's age prediction based on teeth maturity that is assesed by doctors. Teeth are characterised by several levels of maturity (going from A to H), data is often incomplete and for some patients, teeth can't be evaluated because the patient does not have them yet. After several attempts to mitigate the incompleteness of our records, we obtained a very low Mean Absolute Error of 0.9 years in predicting unseen data. The model that best generalized to unseen records was a tuned GBRT (Gradient Boosting Regression Tree). Lastly, we also analyse the importance of different teeth maturities and interestingly discovered that not all teeth have the same predictive power on patient's age."
+abstract: "Our study involves patient's age prediction based on teeth maturity that is assesed by doctors. Teeth are characterised by several levels of maturity (going from '0','1', A to H), this information is often missing, possibly because the patient does not have the teeth yet. After several attempts to mitigate the incompleteness of our records, we obtained a very low Mean Absolute Error of 1.254 years predicting totally unseen data. The model that best generalized to unseen records was a tuned GBRT (Gradient Boosting Regression Tree). Lastly, we also analyse the importance of different teeth maturities and interestingly discovered that not all teeth have the same predictive power on patient's age."
 keywords: "Teeth, Age, Regression, Machine Learning, GBRT"
 date: "`r format(Sys.time(), '%B %d, %Y')`"
 geometry: margin=1in
@@ -28,7 +28,7 @@ bibliography: master.bib
 
 ```{r setup, include=FALSE,comment=FALSE, warning=FALSE}
 # overall settings ---
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = FALSE,include=TRUE,comment=FALSE, warning=FALSE,message = FALSE)
 knitr::opts_knit$set(root.dir = "/home/camilo/Downloads/CM_ML/CM_ML/Maturite_dentaire/")
 
 library(workflowsets)
@@ -38,6 +38,7 @@ library(recipes)
 library(tidyverse)
 library(visdat)
 library(yardstick)
+library(cowplot)
 
 # PATHS ---
 base_path = "/Maturite_dentaire"
@@ -60,34 +61,38 @@ n_na_pct<- round(sum(complete.cases(org_data)==FALSE)/nrow(org_data),1)*100
 
 # Introduction 
 
-The data we study explores teeth maturity of several individuals, specifically, we analysed 2847 records. By teeth maturity we mean that each tooth's condition is analysed by a doctor and classed on one of the possible maturity levels (going from A to H, A being the least mature, and H being the most mature). A total of 8 teeth are analysed by doctors, these involve : two incisors teeth, one canine tooth, two premolar teeth, finally, three molar teeth. In addition to teeth maturity indices, we also know the patient's sex, age and medical ID. 
+The data we study explores teeth maturity of several individuals, specifically, we analysed 2847 records. By teeth maturity we mean that each teeth's condition is analysed by a doctor and classed on one of the possible maturity levels (going from "0", "1", A to H, A being the least mature, and H being the most mature). A total of 8 teeth are analysed by doctors, these involve : two incisors teeth, one canine teeth, two premolar teeth, finally, three molar teeth. In addition to teeth maturity indices, we also know the patient's sex, age and medical ID. 
 
 # Incompleteness of the data 
 
-The data at hand is not complete: out of our 2847 records, for `r n_na` records at least a tooth score is missing (`r n_na_pct`% of the data). Moreover, not all teeth are equally misrepresented, as we might expect, molar teeth scores are less likely to be present in our records because several patients do not have them yet. In addition, because of multiple reasons, is it possible that a patient of a given age lost or had removed one or several teeth, this, we think, complicates missing values interpretation because several causes, unrelated to age, can affect it. 
+The data at hand is not complete: out of our 2847 records, for `r n_na` records at least a teeth score is missing (`r n_na_pct`% of the data). Moreover, not all teeth are equally misrepresented, as we might expect, molar teeth scores are less likely to be present in our records because several patients do not have them yet. In addition, because of multiple reasons, is it possible that a patient of a given age lost or had removed one or several teeth, this, we think, complicates missing values interpretation because several causes, unrelated to age, can affect it. 
 
-Figure X shows missing values per column in our data, moreover, it shows the interaction between missing values across columns. 
+Figure 1 shows missing values per column in our data, moreover, it shows the interaction between missing values across columns. 
 
 We observe that our dependent variable, patient's age, is always complete. We also note that the last molar has a very high percentage of missing values. Besides the last molar (M3), another two teeth have over 10% of missing values (I1 and PM2). 
 
-```{r,echo = FALSE, fig.width=10, fig.height=4}
+```{r,echo = FALSE, fig.width=10, fig.height=4, warning=FALSE,comment=FALSE, fig.cap="Missing values per feature."}
 visdat::vis_miss(org_data)
 ```
 
 
-Nonetheless, because of the first reason of incompleteness we presented (that teeth grow at different stages in life) we think that imputing missing values makes sense, our approach is explained when we discuss about our methodology. 
+Because of the last argument of incompleteness that we presented (that reasons other than chronological growth of teeth might explain missingness) we think that imputing missing values makes sense, our approach is explained when we discuss about our methodology. 
 
 # Methodology 
 
-As predictive power is our main goal, we are interested in finding the model that minimizes an error score on unseen data. The score we chose is the Mean Absolute Error defined as $mae=(\frac{1}{n})\sum_{i=1}^{n}\left | y_{i} - f(x_{i}) \right |$ where $f(x_{i})$ is our predicted age.
+## Evaluation Metric 
 
-To do so, we adopt a classical random split of our data to avoid any data leakage and test model generalization. For algorithms that do not make a validation set right out the bat, i.e. *XGBoost*, we make it ourselves to ensure that we do not overfit our model on test data because of Early Stopping and other techniques. 
+As predictive power is our main goal, we are interested in finding the model that minimizes an error score metric on unseen data. The score we chose is the Mean Absolute Error defined as $mae=(\frac{1}{n})\sum_{i=1}^{n}\left | y_{i} - f(x_{i}) \right |$ where $f(x_{i})$ is our predicted age.
+
+## Data Splitting  
+
+To do so, we adopt a classical random split of our data to avoid any data leakage and to test model generalization. Since our best model uses a validation set to tune a parameter (number of boosting rounds), we split the data in three sets (training, validation and testing) for all models ^[This ensures that we can compare models because they all received the same amount of traning data]. Lastly, we would like to emphasize that testing data was complete unseen by all models as well as by preprocessing algorithms discussed below. 
 
 ## Ordinal encoding 
 
-Teeth maturity comes in a mixture of numbers and letters levels. Maturity scores ranges from 0, 1, A,..., H, 0 being the least mature and H being the most mature. Several algorithms do not work with ordinal data or perform poorly after one hot encoding of such data. 
+Teeth maturity comes in a mixture of numbers and letter levels. Maturity scores ranges from '0', '1', A,..., H, 0 being the least mature and H being the most mature. Several algorithms do not work with ordinal data or perform poorly after one hot encoding of such data. 
 
-In order to compare algorithms but also to facilitate convergence on some algorithms we adopt the strategy of ordinal encoding. That is, we assign an integer value to each categorical level. The transformation is monotonic for the purpose of keeping the order of teeth maturity scores. 
+In order to compare algorithms but also to facilitate convergence on some algorithms we adopt the strategy of ordinal encoding. That is, we assign an discrete value to each categorical level. The transformation is monotonic for the purpose of keeping the order of teeth maturity scores. 
 
 We assume that maturity scores are based on a linear scale, in other words, the difference between A and B is of the same magnitude as the difference between G and H. 
 
@@ -106,25 +111,22 @@ n_nei= 40
 
 ### Removing very incomplete data 
 
-As discussed before, several samples of the data contain missing values. Figure X showed that for several patients, multiple teeth scores where missing, i.e. some samples presented a continuous black line, indicating that for all teeth, the maturity scores are not available. Because of this observation, we decided to exclude some samples from the training data in order to prevent the imputation technique, discussed below, to base its neighboring on an insufficient subset of columns. 
+As discussed before, several samples of the data contain missing values. Figure 1 showed that for several patients, multiple teeth scores were missing, i.e. some samples presented a continuous black line, indicating that for all teeth, the maturity scores are not available. Because of this observation, we decided to exclude some samples from the training data in order to prevent the imputation technique, discussed below, to base its neighboring on an insufficient subset of columns (mainly only on the patient's sex). 
 
-Specifically, we removed samples in the training set for which information about 7, out of 8, teeth is missing. That was the case for `r n_omitted` samples in the training set, reducing its size from `r nb_training_samples` observations to `r nb_training_samples - n_omitted` observations.
+Specifically, we removed samples in the training and validation sets for which information about all teeth was missing. That was the case for `r n_omitted` samples in the training/validation sets, reducing its size from `r nb_training_samples` observations to `r nb_training_samples - n_omitted` observations. The testing set was kept untouched. 
 
 ### K Nearest Neighbors imputation 
 
-We believe that, in general, patients of similar age have similar teeth maturities, hence, we are convinced that for our prediction task, samples that are alike will tend to have the same age. Therefore, if tooth information is missing from a sample, we believe that it could be estimated by looking at analogous samples existing in the training data. This motivates us to use an imputing algorithm that performs some multivariate estimation of missing values using complete observations. 
+We believe that, in general, patients of similar age have similar teeth maturities, hence, we are convinced that for our prediction task, samples that are alike will tend to have the same age. Therefore, if teeth information is missing from a sample, we believe that it could be estimated by looking at analogous samples existing in the training data. This motivates us to use an imputing algorithm that performs some multivariate estimation of missing values using complete observations. 
 
-We performed K Nearest Neighbors imputation on the missing values in the training set and testing set. We set the vicinity used for imputation to `r n_nei` neighbors, these are weighted by euclidean distance. 
+We performed K Nearest Neighbors imputation on the missing values in the training, validation and testing set. We set the vicinity used for imputation to `r n_nei` neighbors, neighbors are weighted by euclidean distance. 
 
 Because we believe that the missingness of a tooth score is informative about a patient's age, e.g. wisdom tooth removal, we created a binary features indicating the presence of missing values for each imputed column and sample. 
 
 ## Outlier removal 
 
-After all these steps, our last process before training is to remove the outliers. Removing outliers consist of exclude unusual values and so reduce the variability in our data. We have tried several techniques for detect these outliers:
-- PCA: we fit_transform our data and then we calculate the MSE score for each point in order to drop the 10% lower (we have tested 10% upper and 5%-5% but lower values was the best to remove).
-- Isolation Forest: this algorithm is based on tree algorithms it calculate an anomalie score for each point, the easier it is to isolate the data, the more likely it is that the data is an anomaly.
-After performance comparisons we kept the Isolation Forest to remove the outliers. 
-Remove outliers is one of our most important techniques of preprocessing to reduce our mean absolute error.
+We removed some extra samples that we consider to be outliers in order to remove noise from the training data. After trying a PCA-based technique to remove such outliers, we turned to a novel algorithm based on an ensemble of trees named Isolation Forest (@isoforest). This algorithm calculates an anomaly score for each point based on how easy it is to isolate a sample from the rest of the data. 
+Data being scarse, we only removed the top 5% of outliers in the training set. This procedure was not applied to the validation and testing sets. 
 
 # Model developement 
 
@@ -157,10 +159,10 @@ rf_model <-
   set_engine("ranger") %>% 
   set_mode("regression")
 
-lasso <- linear_reg(penalty = 0.001, mixture = 1) %>% 
+lasso <- linear_reg(penalty = 0.1, mixture = 1) %>% 
   set_engine("glmnet")
 
-elastic <- linear_reg(penalty = 0.001, mixture = 0.5) %>% 
+elastic <- linear_reg(penalty = 0.1, mixture = 0.5) %>% 
   set_engine("glmnet")
 
 knnr<- nearest_neighbor(mode= "regression")%>% # 5 neighbors by default
@@ -196,14 +198,14 @@ fit_rs <- wf_set%>% workflow_map(
 
 As stated before, our main goal is finding the optimum predictive power. To do so, we tried several algorithms on the processed data, i.e. following the treatment described before. 
 
-We report the scores obtained by the following models: Linear regression, Random Forest, Lasso regression and Elastic regression. All data sets are scored, that is, the train, validation and test sets. The models where not *fine tuned* because we were mostly interested in defining baselines score to improve upon. 
+We report the scores obtained by the following models in Table 1: Linear regression, Random Forest, Lasso regression and Elastic regression. All data splits are scored, that is, the train, validation and test sets. The models where not *fine tuned* because we were mostly interested in defining baselines scores to improve upon. 
 
-In addition, we performed k-fold (k=10) cross validation for each algorithm to improve our training *mae* estimate. The results of such cross validation strategy are shown in Figure X: 
-```{r autplot,echo = TRUE,include=TRUE,comment=FALSE, warning=FALSE}
-autoplot(fit_rs)
+In addition, we performed k-fold (k=10) cross validation for each algorithm to reduce the variance of our training MAE. The results of such cross validation strategy are shown in Figure 2: 
+
+```{r autplot,echo = FALSE,include=TRUE,comment=FALSE, warning=FALSE,fig.cap = "Training MAE for all models with cross validation (10 folds)", fig.align = 'center'}
+autoplot(fit_rs)+
+  theme_light()
 ```
-
-Table X shows all mean absolute error scores on all data sets from all models. 
 
 ```{r evaluate all models,echo = FALSE,include=FALSE,comment=FALSE, warning=FALSE}
 # Get the names --- 
@@ -256,19 +258,89 @@ results <- results%>% pivot_wider(names_from = model, values_from = mae)
 
 ```
 
-```{r print results}
-print(results)
+```{r print results,results='asis'}
+knitr::kable(results, "latex", caption = 'MAE for all splits by all trained models.')
+
 ```
-
-
-
-
 
 ## Results on best tuned GBRT 
 
+# Model 
+
+The model that provided the best performance was a Gradient Boosting Regression Tree implementation named *Catboost* (@catboost). We were surprised to found out that the model performed better with very modest trees (maximum depth of 3), a very small learning rate (0.001, hence a lot of boosting rounds : 15590), lastly, a strong *L2* regularization of 600. As in many ensemble techniques, the variance of the predictions improved by sampling the features on each level (90% of the features at each level split). 
+
+In figure 3, we observe the training and validation MAE per boosting round. We note a very small overfitting to the training data even after several thousand iterations. 
+
+```{r,comment=FALSE, warning=FALSE,fig.cap = "MAE results at each round on the *Catboost* model that yielded the best results.", fig.align = 'center'}
+# Read results ---
+eval_res <- readr::read_csv("evals_result_.csv")
+eval_res$Iteration <- 1:nrow(eval_res)
+# Plot results ---
+eval_res %>% 
+  pivot_longer(cols= c("learn","validation"),names_to = "Set",values_to = "MAE")%>% ggplot(aes(x=Iteration, y =MAE, color= Set))+ 
+  geom_line()+
+  theme_light()
+```
+
+As discussed before, relatively few training samples are provided by this dataset, even more after we excluded some outliers from the training data. To mitigate the chance of observing the results we got by mere luck of the splitting choice and fixed models initializations, we retrain our model 20 times (with the parameters found previously) varying the random state for the splitting function and for model's initializations at each round. We recorded the training, validation and testing MAE for each fitting. Table 2 shows the average MAE scores for the three data splits as well as the standard deviations. ^[We previously used the validation data to find the optimal number of boosting rounds by early stopping. Now, in these repeated trials (20), the validation data serve no purpose, nonetheless, for our results to be meaningful, we have to provide the same amount of training data to the model as we did when tuning the model. Hence, a validation split is still required. Difference between validation and testing results are explained by the fact that the validation set does not contain very incomplete samples (all teeth information is missing), the testing set does.] 
+
+```{r,results='asis'}
+# Read random_states results ---
+rs_res <- readr::read_csv("results.csv")
+metrics_result<-rs_res%>% pivot_longer(cols=c("train","val","test"), names_to="split", values_to = "MAE")%>% group_by(split) %>% summarise(mean= mean(MAE), sd= sd(MAE), max = max(MAE),min = min(MAE))
+
+knitr::kable(metrics_result, "latex",caption = 'Mean MAE on 20 fittings by varying the random states of all functions that accept that parameter. GBRT Model parameters were previously found by tuning. On these iterations, the model does not early-stop.')
+
+```
+
+
 # Feature importances 
 
+For completeness, we study feature contributions by looking at the Shapley values for each feature (@lundberg2020local2global). 
+
+We observe several phenomenons in Figure 4: 
+
+  - Teeth maturity information contributes more to age prediction than missing values indicators.
+  
+  - It seems that late-growing teeth are more influential. The maturity scores of the Molar (M3) appears as the one with higher Shapley values, followed by the moral (M2), and the pre-molars (PM2, PM1).
+
+  - In general, higher maturities correlate with older patients. 
+
+```{r, fig.align="center", fig.cap="Shapley Summary Plot per feature. Features are ranked by their absolute shapley contribution."}
+
+knitr::include_graphics("/home/camilo/Downloads/CM_ML/CM_ML/Maturite_dentaire/feature_imp_shap.png")
+
+```
+
+Also, the effect of VAL_M3 maturity is ambiguous or at least non linear. It seems that very high maturities contribute positively to age but so do lower maturity scores. 
+
+In Figure 5, we contrast the dependence plot of VAL_M3 with the second most influential feature, VAL_M2, who has a more direct interpretation. 
+
+```{r DPlot, fig.cap="Dependence plots for VAL_M3 and VAL_M2. We see that the shapley values do not increase linearly with the maturity levels of VAL_M3 as they do with VAL_M2."}
+shaps<- readr::read_csv("shap_vals.csv")
+
+molar_3 <- ggplot(shaps, aes(x = X_test$VAL_M3, y = VAL_M3)) +
+    geom_point() + theme_light()+
+    ggtitle("Dependence plot VAL_M3") +
+    xlab("VAL_M3 Maturity Scores testing data")+
+    ylab("Shapley Value") 
+
+molar_2 <- ggplot(shaps, aes(x = X_test$VAL_M2, y = VAL_M2)) +
+    geom_point() + theme_light()+
+    ggtitle("Dependence plot VAL_M2") +
+    xlab("VAL_M2 Maturity Scores testing data")+
+    ylab("Shapley Value") 
+
+plot_grid(molar_3, molar_2, labels = "AUTO")
+```
+
 # Conclusion 
+
+We pursuited predictive power of patient's age given the maturity levels of their teeth. The data was very incomplete and several reasons might explain missing teeth assesments. Some teeth information might be missing for reasons that are independent of the patient's age, but, generally, teeth growth follows a chronological pattern. Because of the former, we believe that imputation of missing maturity scores is important. Because of the latter, we created indicators of missingness. In addition we de-noised the training data of very incomplete samples that otherwise would have been estimated only by sex. 
+
+In order to explore several algorithms performances, we translated categorical maturity levels to a discrete representation. Furthermore, a great amount of caution was taken to prevent data-leakeage from the different data splits used. Briefly, the testing data had no say in the data preprocessing, model training and tuning. Overly incomplete data (all teeth information missing) was removed from the training and validation but the latter took no part in learning the parameters for the imputation technique (K-Nearest neighbor imputation algorithm) nor for the outlier removal step (Isolation Forest algortithm).
+
+Common regression models (linear regressions, random forest and K Nearest Neighbor for regression) were tested. These model provided a baseline MAE that was surpassed by a tuned Gradient Boosting Regression Tree implementation called *catboost*. The tuned model we obtained slowly combines very weak learners with high regularization. Our best model configuration achieved a mean MAE of 1.254 on unseen data (with an small standard deviation of 0.059) when retrained several times with different random initializations. This ensures that the results we obtained are not dependent on a lucky split of the small sized dataset (minimum testing MAE reported in Table 2 shows such a lucky split).
 
 # References 
 
